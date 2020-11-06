@@ -36,39 +36,18 @@ LSspec <- function( x, t, os = 1, tRange = range(t) ){
 data.frame( freq = freq, P = P )
 }
 
-dpssApproxFun <- function( t, w, k, tRange = range(t) ){
+dpssApproxFun <- function(t, w, k, tRange = range(t), returnEigenvalues = TRUE){
   # t are the times
   # w is the bandwith
   # k is the number of tapers to return
   # tRange is the total range of times (possibly beyond range(t))
-  require( multitaper )
-  
-  n <- length(t)
-  T <- diff( tRange )
-  # sample the dpss, then interpolate to needed values
-  # The dpss is sampled regularly for accuracy (tridiagonal and whatnot)
-  tp <- dpss( n = n, k = k, nw = n*w, returnEigenvalues = FALSE )$v
-  tp <- as.data.frame(tp)
-  # Now a cubic spline is fit to the regularly spaced dpss
-  # splF <- function( taper, t ) smooth.spline( x = t, y = taper, all.knots = TRUE, keep.data = FALSE )
-  splF <- function( taper, t ) splinefun( t, taper )
-
-  out <- lapply( tp, splF, t = seq(from=tRange[1], to=tRange[2], length.out = n) )
-  attr( out, "w" ) <- w
-  attr( out, "k" ) <- k
-  attr( out, "n" ) <- n
-  attr( out, "tRange" ) <- tRange
-out
-}
-
-dpssApproxFunEigen <- function(t, w, k, tRange = range(t), returnEigenvalues = TRUE){
-  # library required for dpss
   require(multitaper)
   
   # number of samples
   n <- length(t)
   
-  # Spline Functions to interpolate DPSS tapers
+  # sample the dpss, then interpolate to needed values
+  # The dpss is sampled regularly for accuracy (tridiagonal and whatnot)
   tp <- dpss(n = n, k = k, nw = n * w, returnEigenvalues = returnEigenvalues)
   tpVal <- as.data.frame(tp$v)
   splF <- function(taper, t) splinefun(t, taper)
@@ -156,7 +135,7 @@ LSspecMT <- function(t, x, os = 1, tRange = range(t), w, k, tpI = NULL, subtract
   
   # Compute Interpolated DPSS tapers if not provided
   if(is.null(tpI)){
-    dpssIN <- dpssApproxFunEigen(t, w, k, tRange = tRange, returnEigenvalues = TRUE)
+    dpssIN <- dpssApproxFun(t, w, k, tRange = tRange, returnEigenvalues = TRUE)
     tpI <- dpssIN$tpI
     lambdaK <- dpssIN$eigen    # Eigenvalues are required only if adaptive weighting is performed
   }
@@ -170,10 +149,11 @@ LSspecMT <- function(t, x, os = 1, tRange = range(t), w, k, tpI = NULL, subtract
   taperedData <- lapply(tpIVal, pf, t = t, x = x, T = T, dt = T/N)
   
   # Compute spectra
-  spc <- lapply(taperedData, LSspec, t = t, os = os, tRange = tRange )
+  #spc <- lapply(taperedData, LSspec, t = t, os = os, tRange = tRange )
+  spc <- lapply(taperedData, lsp, times = t)
   # Frequency and power
-  freq <- spc[[1]]$freq
-  powerK <- sapply(spc, getElement, name = "P")
+  freq <- spc$V1$scanned
+  powerK <- sapply(spc, getElement, name = "power")
   
   print(length(powerK))
   # Averaging to get multitaper statistic
@@ -183,7 +163,7 @@ LSspecMT <- function(t, x, os = 1, tRange = range(t), w, k, tpI = NULL, subtract
   if(!is.null(niterations)){
     for(i in 1:niterations){
       # Weighting using local "signal" and broad-band "noise"
-      dK <- Sf/(Sf%*%t(lambdaK) + (1 - lambdaK)*var(y))
+      dK <- Sf/(Sf%*%t(lambdaK) + (1 - lambdaK)*var(x))
       # Spectrum Estimate
       Sf <- rowMeans(dK^2*lambdaK*powerK)/sum(dK^2*lambdaK)
     }
@@ -214,7 +194,7 @@ PspecMT <- function( t, x, os = 1, tRange = range(t), w, k, tpI = NULL, subtract
   
   # Compute Interpolated DPSS tapers if not provided
   if(is.null(tpI)){
-    dpssIN <- dpssApproxFunEigen(t, w, k, tRange = tRange, returnEigenvalues = TRUE)
+    dpssIN <- dpssApproxFun(t, w, k, tRange = tRange, returnEigenvalues = TRUE)
     tpI <- dpssIN$tpI
     lambdaK <- dpssIN$eigen    # Eigenvalues are required only if adaptive weighting is performed
   }
@@ -241,8 +221,10 @@ PspecMT <- function( t, x, os = 1, tRange = range(t), w, k, tpI = NULL, subtract
   
   if(!is.null(niterations)){
     for(i in 1:niterations){
-      dK <- sqrt(lambdaK)*Sf/(lambdaK*Sf + (1 - lambdaK)*var(x))
-      Sf <- rowMeans(dK^2*powerK)/sum(dK^2)
+      # Weighting using local "signal" and broad-band "noise"
+      dK <- Sf/(Sf%*%t(lambdaK) + (1 - lambdaK)*var(x))
+      # Spectrum Estimate
+      Sf <- rowMeans(dK^2*lambdaK*powerK)/sum(dK^2*lambdaK)
     }
   }
   out <- data.frame(freq = freq, P = Sf)
@@ -270,7 +252,6 @@ nudft <- function(z, t, inverse=FALSE) {
   vapply(1:N, function(h) sum(z * exp(ff*(h-1))), complex(1))
 }
 
-
 NUspecMT <- function(t, x, os = 1, tRange = range(t), w, k, tpI = NULL, subtract.mean = TRUE, niterations = NULL, Ftest = TRUE){
   # Number of samples
   N <- length(t)
@@ -281,7 +262,7 @@ NUspecMT <- function(t, x, os = 1, tRange = range(t), w, k, tpI = NULL, subtract
   
   # Compute Interpolated DPSS tapers if not provided
   if( is.null(tpI) ){
-    dpssIN <- dpssApproxFunEigen(t, w, k, tRange = tRange, returnEigenvalues = TRUE)
+    dpssIN <- dpssApproxFun(t, w, k, tRange = tRange, returnEigenvalues = TRUE)
     tpI <- dpssIN$tpI
     lambdaK <- dpssIN$eigen
   }
@@ -306,8 +287,10 @@ NUspecMT <- function(t, x, os = 1, tRange = range(t), w, k, tpI = NULL, subtract
   
   if(!is.null(niterations)){
     for(i in 1:niterations){
-      dK <- sqrt(lambdaK)*Sf/(lambdaK*Sf + (1 - lambdaK)*var(x))
-      Sf <- rowMeans(dK^2*powerK)/sum(dK^2)
+      # Weighting using local "signal" and broad-band "noise"
+      dK <- Sf/(Sf%*%t(lambdaK) + (1 - lambdaK)*var(x))
+      # Spectrum Estimate
+      Sf <- rowMeans(dK^2*lambdaK*powerK)/sum(dK^2*lambdaK)
     }
   }
   out <- data.frame(freq = freq, P = Sf)
