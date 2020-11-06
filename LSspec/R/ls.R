@@ -148,14 +148,12 @@ LSspecMT <- function(t, x, os = 1, tRange = range(t), w, k, tpI = NULL, subtract
   }
   taperedData <- lapply(tpIVal, pf, t = t, x = x, T = T, dt = T/N)
   
-  # Compute spectra
-  #spc <- lapply(taperedData, LSspec, t = t, os = os, tRange = tRange )
-  spc <- lapply(taperedData, lsp, times = t)
+  # Compute spectra - you can use lsp in place of LSspec for comparison
+  spc <- lapply(taperedData, LSspec, t = t, os = os, tRange = tRange)
   # Frequency and power
-  freq <- spc$V1$scanned
-  powerK <- sapply(spc, getElement, name = "power")
+  freq <- spc[[1]]$freq    # For lsp, this becomes spc$V1$scanned
+  powerK <- sapply(spc, getElement, name = "P") # For lsp, this becomes name = "power"
   
-  print(length(powerK))
   # Averaging to get multitaper statistic
   Sf <- rowMeans(powerK)
   
